@@ -58,6 +58,38 @@ static uint8 buffer[SPI_DEVICE_BUFFER_SIZE] = {0};
 /*						Public function definitions						  		   */
 /******************************************************************************/
 
+uint8 cmd_LENGTH = 6;
+uint8 cmd_READ_VTEMP[6] = {0x7E, 0x01, 0xEE, 0x00, 0x00, 0x00};
+
+uint8 m80_int_status(void)
+{
+	FT_STATUS status = FT_OK;
+	uint8 gpio_val;
+	status = FT_ReadLowGPIO(ftHandle, &gpio_val);
+	APP_CHECK_STATUS(status);
+	return (gpio_val & (1 << 5)) && (1 << 5);
+}
+
+void m80_wait_int(void)
+{
+	FT_STATUS status = FT_OK;
+	status = m80_int_status();
+	//APP_CHECK_STATUS(status);
+	while(status == 0)
+	{
+		sleep(1);
+		status = m80_int_status();
+		//APP_CHECK_STATUS(status);
+		
+	}
+}
+
+float m80_convert_temp(uint16 vtemp)
+{
+	return 475.0 - (582.4 * vtemp)/16384.0;
+}
+
+
 
 /*!
  * \brief Main function / Entry point to the sample application
@@ -142,24 +174,35 @@ int main()
 	uint32 sizeTransfered=0;
 	
 	uint8 gpio_val = 0;
-	//Example loop for reading GPIO Values
+	//Example read camera temperature
 	for(;;)
 	{
-			/*Read 1 bytes*/
-		gpio_val = 0;
-		status = FT_ReadLowGPIO(ftHandle, &gpio_val);
+
+		m80_wait_int();
+
+		sizeTransfered=0;
+		status = SPI_Write(ftHandle, cmd_READ_VTEMP, cmd_LENGTH, &sizeTransfered, 
+					SPI_TRANSFER_OPTIONS_SIZE_IN_BYTES|
+					SPI_TRANSFER_OPTIONS_CHIPSELECT_DISABLE);
 		APP_CHECK_STATUS(status);
 
-		printf("GPIO val: %d %d %d %d %d %d %d %d\n",
-				(gpio_val & (1<<0)) && (1<< 0),
-				(gpio_val & (1<<1)) && (1<< 1),
-				(gpio_val & (1<<2)) && (1<< 2),
-				(gpio_val & (1<<3)) && (1<< 3),
-				(gpio_val & (1<<4)) && (1<< 4),
-				(gpio_val & (1<<5)) && (1<< 5), //INT pin in VA800A-SPI
-				(gpio_val & (1<<6)) && (1<< 6),
-				(gpio_val & (1<<7)) && (1<< 7)); //PD pin in VA800A-SPI
 
+		m80_wait_int();
+
+		sizeTransfered=0;
+		status = SPI_Read(ftHandle, buffer_in, cmd_LENGTH, &sizeTransfered, 
+					SPI_TRANSFER_OPTIONS_SIZE_IN_BYTES|
+					SPI_TRANSFER_OPTIONS_CHIPSELECT_DISABLE);
+		APP_CHECK_STATUS(status);
+		sleep(1);
+		
+		printf("SPI input: %02X%02X%02X%02X%02X%02X \n",buffer_in[0],buffer_in[1],buffer_in[2],buffer_in[3],buffer_in[4],buffer_in[5]);
+		
+		printf("temp: %fc\n",m80_convert_temp( (uint16)(buffer_in[4] << 8) | buffer_in[5] ) );
+
+
+		m80_wait_int();
+		
 		sleep(1);
 	}
 
